@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Chat App Starter</title>
+  <style>
+    :root { --bg:#0f172a; --card:#111827; --muted:#94a3b8; --text:#e5e7eb; --accent:#22d3ee; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial; background:var(--bg); color:var(--text); }
+    .wrap { max-width: 820px; margin: 0 auto; padding: 24px; }
+    .card { background: linear-gradient(180deg, #0b1220, #0b1220 60%, #0a0f1a); border: 1px solid #1f2937; border-radius: 16px; padding: 16px; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+    h1 { margin: 0 0 8px; font-size: 28px; letter-spacing:.2px; }
+    .muted { color: var(--muted); font-size: 14px; }
+    .row { display: flex; gap: 8px; }
+    input, button { padding: 12px 14px; border-radius: 12px; border:1px solid #334155; background:#0b1220; color:var(--text); }
+    input { flex: 1; }
+    button { cursor:pointer; font-weight:600; }
+    button.primary { background: #0b1220; border-color: var(--accent); }
+    #feed { margin: 12px 0 16px; height: 420px; overflow: auto; padding: 12px; border-radius: 12px; background:#0a0f1a; border:1px solid #1f2937; }
+    .msg { margin: 8px 0; }
+    .meta { font-size: 12px; color: var(--muted); }
+    .system { color: #67e8f9; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Chat App Starter</h1>
+      <div class="muted">FastAPI + WebSocket • SQLite history • No build step</div>
+
+      <div id="feed"></div>
+
+      <div class="row" style="margin-bottom:8px">
+        <input id="username" placeholder="Your name" maxlength="50" />
+        <button id="connect" class="primary">Connect</button>
+      </div>
+      <div class="row">
+        <input id="input" placeholder="Type a message…" maxlength="1000" disabled />
+        <button id="send" disabled>Send</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const feed = document.getElementById('feed');
+    const input = document.getElementById('input');
+    const sendBtn = document.getElementById('send');
+    const nameInput = document.getElementById('username');
+    const connectBtn = document.getElementById('connect');
+
+    let ws = null;
+    let username = '';
+
+    function addLine(html) {
+      const div = document.createElement('div');
+      div.className = 'msg';
+      div.innerHTML = html;
+      feed.appendChild(div);
+      feed.scrollTop = feed.scrollHeight;
+    }
+
+    async function loadHistory() {
+      const res = await fetch('/api/messages?limit=100');
+      const data = await res.json();
+      data.forEach(m => {
+        addLine(`<span class="meta">[#${m.id}] ${new Date(m.created_at).toLocaleTimeString()}</span> <b>${escapeHtml(m.username)}:</b> ${escapeHtml(m.content)}`);
+      });
+    }
+
+    function escapeHtml(s) {
+      return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
+    function connect() {
+      if (ws) { ws.close(); }
+      username = nameInput.value.trim() || 'Guest';
+      const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
+      ws = new WebSocket(`${scheme}://${location.host}/ws?username=${encodeURIComponent(username)}`);
+
+      ws.onopen = () => {
+        input.disabled = false; sendBtn.disabled = false; nameInput.disabled = true; connectBtn.disabled = true;
+        addLine(`<span class="system">Connected as ${escapeHtml(username)}</span>`);
+        loadHistory();
+      };
+
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.type === 'system') {
+            addLine(`<span class="system">${escapeHtml(msg.username)} ${msg.event === 'join' ? 'joined' : 'left'} • ${new Date(msg.created_at).toLocaleTimeString()}</span>`);
+          } else if (msg.type === 'message') {
+            addLine(`<span class="meta">[#${msg.id}] ${new Date(msg.created_at).toLocaleTimeString()}</span> <b>${escapeHtml(msg.username)}:</b> ${escapeHtml(msg.content)}`);
+          }
+        } catch { /* ignore */ }
+      };
+
+      ws.onclose = () => {
+        input.disabled = true; sendBtn.disabled = true; nameInput.disabled = false; connectBtn.disabled = false;
+        addLine(`<span class="system">Disconnected</span>`);
+      };
+    }
+
+    connectBtn.addEventListener('click', connect);
+
+    sendBtn.addEventListener('click', () => {
+      const text = input.value.trim();
+      if (!text || !ws || ws.readyState !== 1) return;
+      ws.send(JSON.stringify({ username, content: text }));
+      input.value = '';
+      input.focus();
+    });
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') sendBtn.click();
+    });
+  </script>
+</body>
+</html>
